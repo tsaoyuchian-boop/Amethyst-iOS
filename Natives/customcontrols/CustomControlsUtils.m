@@ -248,7 +248,7 @@ void generateAndSaveDefaultControl() {
         @"0.0 * ${screen_height}",
         104.8, 39.2, NO, NO, YES, YES, 0
     )];
-    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Left Shift",
+    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"L_Sh",
         (int[]){GLFW_KEY_LEFT_SHIFT,0,0,0},
         @"0.94878495 * ${screen_width} - ${width} - ${margin}",
         @"0.8178498 * ${screen_height} - ${height}",
