@@ -38,15 +38,21 @@ ame_vk_preflight_t ame_vk_preflight(const char *dylibPath) {
         fail(&r, "the library is not MoltenVK, entry points are missing", NULL);
         return r;
     }
-    // LWJGL calls this at startup and refuses to load the library without it
+    // LWJGL calls this at startup and refuses to load the library without it.
     if (!dlsym(lib, "vkEnumerateInstanceLayerProperties")) {
         fail(&r, "vkEnumerateInstanceLayerProperties is missing, the driver needs a loader shim", NULL);
         return r;
     }
 
+    // vkEnumerateInstanceVersion was added in Vulkan 1.1. Some iOS Vulkan
+    // loader/driver shims export the entry point but cannot answer this query
+    // during preflight, even though instance creation and extension discovery
+    // work normally. Treat a failed version query as Vulkan 1.0 and let the
+    // required surface-extension checks below decide whether the driver is
+    // usable. Do not reject an otherwise functional driver based on this
+    // optional query alone.
     if (enumVersion(&r.apiVersion) != 0) {
-        fail(&r, "vkEnumerateInstanceVersion failed", NULL);
-        return r;
+        r.apiVersion = (1u << 22); // VK_API_VERSION_1_0
     }
 
     uint32_t count = 0;
