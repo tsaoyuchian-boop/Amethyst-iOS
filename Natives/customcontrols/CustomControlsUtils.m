@@ -242,6 +242,12 @@ void generateAndSaveDefaultControl() {
         @"0.31131014 * ${screen_height} + (px(69.6) /100.0 * ${preferred_scale}) + ${margin}",
         69.6, 69.6, NO, NO, YES, NO, 0
     )];
+    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Runtime\\nMenu",
+        (int[]){SPECIALBTN_MENU,0,0,0},
+        @"1.0 * ${screen_width} - (px(69.6) / 100.0 * ${preferred_scale}) - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin}",
+        @"0.0 * ${screen_height}",
+        104.8, 39.2, NO, NO, YES, YES, 0
+    )];
     [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"L_Sh",
         (int[]){GLFW_KEY_LEFT_SHIFT,0,0,0},
         @"0.94878495 * ${screen_width} - ${width} - ${margin}",
