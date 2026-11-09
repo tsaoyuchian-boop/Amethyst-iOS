@@ -248,7 +248,7 @@ void generateAndSaveDefaultControl() {
         @"0.0 * ${screen_height}",
         104.8, 39.2, NO, NO, YES, YES, 0
     )];
-    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Shift",
+    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Left Shift",
         (int[]){GLFW_KEY_LEFT_SHIFT,0,0,0},
         @"0.94878495 * ${screen_width} - ${width} - ${margin}",
         @"0.8178498 * ${screen_height} - ${height}",
@@ -284,7 +284,7 @@ void generateAndSaveDefaultControl() {
         @"0.0 * ${screen_height}",
         69.6, 40.0, NO, NO, YES, YES, 0
     )];
-    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Pause",
+    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"ESC",
         (int[]){GLFW_KEY_ESCAPE,0,0,0},
         @"0.94878495 * ${screen_width} - ${width} - ${margin}",
         @"0.8178498 * ${screen_height} - (px(69.6) / 100.0 * ${preferred_scale}) - ${height} - ${margin}",
