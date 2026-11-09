@@ -250,8 +250,8 @@ void generateAndSaveDefaultControl() {
     )];
     [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Shift",
         (int[]){GLFW_KEY_LEFT_SHIFT,0,0,0},
-        @"0.94878495 * ${screen_width} - (px(69.6) / 100.0 * ${preferred_scale}) - (px(69.6) / 100.0 * ${preferred_scale}) - ${margin} + (px(69.6) / 100.0 * ${preferred_scale}) + ${margin} - (px(69.6) / 100.0 * ${preferred_scale}) - ${margin} + (px(69.6) / 100.0 * ${preferred_scale}) + ${margin} - (px(69.6) / 100.0 * ${preferred_scale}) - ${margin} + (px(69.6) / 100.0 * ${preferred_scale}) + ${margin}",
-        @"0.31131014 * ${screen_height}",
+        @"0.94878495 * ${screen_width} - ${width} - ${margin}",
+        @"0.8178498 * ${screen_height} - ${height}",
         69.6, 69.6, YES, NO, YES, YES, 0
     )];
     [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Right\nClick",
@@ -286,9 +286,9 @@ void generateAndSaveDefaultControl() {
     )];
     [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Pause",
         (int[]){GLFW_KEY_ESCAPE,0,0,0},
-        @"1.0 * ${screen_width} - (px(69.6) / 100.0 * ${preferred_scale}) - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} - (px(104.8) / 100.0 * ${preferred_scale}) - ${margin} + (px(104.8) / 100.0 * ${preferred_scale}) + ${margin} - ${width} - ${margin}",
-        @"0.0 * ${screen_height}",
-        104.8, 39.2, NO, NO, YES, NO, 0
+        @"0.94878495 * ${screen_width} - ${width} - ${margin}",
+        @"0.8178498 * ${screen_height} - (px(69.6) / 100.0 * ${preferred_scale}) - ${height} - ${margin}",
+        69.6, 39.2, NO, NO, YES, NO, 0
     )];
     [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"Inventory",
         (int[]){GLFW_KEY_E,0,0,0},
@@ -303,19 +303,47 @@ void generateAndSaveDefaultControl() {
         104.8, 39.2, NO, NO, NO, YES, 0
     )];
 
-    // Keep F3 and F5 as directly accessible buttons, not inside a drawer.
-    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"F3",
-        (int[]){GLFW_KEY_F3,0,0,0},
-        @"0.0 * ${screen_width} + ${margin}",
-        @"0.0 * ${screen_height} + ${margin}",
-        69.6, 40.0, NO, NO, YES, YES, 0
-    )];
-    [dict[@"mControlDataList"] addObject:createDefaultControlButton(@"F5",
-        (int[]){GLFW_KEY_F5,0,0,0},
-        @"0.0 * ${screen_width} + (px(69.6) / 100.0 * ${preferred_scale}) + 2 * ${margin}",
-        @"0.0 * ${screen_height} + ${margin}",
-        69.6, 40.0, NO, NO, YES, YES, 0
-    )];
+    NSMutableDictionary *drawer = [NSMutableDictionary new];
+    drawer[@"orientation"] = @"FREE";
+    drawer[@"properties"] = createDefaultControlButton(@"More",
+        (int[]){0,0,0,0},
+        @"0.0 * ${screen_width}",
+        @"0.0 * ${screen_height}",
+        96.0, 40.0, NO, NO, YES, YES, 1.5
+    );
+    drawer[@"buttonProperties"] = [NSMutableArray arrayWithArray:@[
+        createDefaultControlButton(@"Third\nperson",
+            (int[]){GLFW_KEY_F5,0,0,0},
+            @"0.0 * ${screen_width} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} - ${width} - ${margin}",
+            @"0.0026855469 * ${screen_height} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - (px(40.0) /100.0 * ${preferred_scale}) - ${margin} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - (px(40.0) /100.0 * ${preferred_scale}) - ${margin}",
+            96.0, 40.0, NO, NO, YES, YES, 0
+        ),
+        createDefaultControlButton(@"Debug\nMenu",
+            (int[]){GLFW_KEY_F3,0,0,0},
+            @"0.0 * ${screen_width} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin}",
+            @"0.0026855469 * ${screen_height} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - (px(40.0) /100.0 * ${preferred_scale}) - ${margin} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - (px(40.0) /100.0 * ${preferred_scale}) - ${margin}",
+            96.0, 40.0, NO, NO, YES, YES, 0
+        ),
+        createDefaultControlButton(@"Chat",
+            (int[]){GLFW_KEY_T,0,0,0},
+            @"0.0 * ${screen_width} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} - ${width} - ${margin}",
+            @"0.0026855469 * ${screen_height} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin}",
+            96.0, 40.0, NO, NO, YES, YES, 0
+        ),
+        createDefaultControlButton(@"Keyboard",
+            (int[]){SPECIALBTN_KEYBOARD,0,0,0},
+            @"0.0 * ${screen_width} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} - (px(96.0) / 100.0 * ${preferred_scale}) - ${margin} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin}",
+            @"0.0026855469 * ${screen_height} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin}",
+            96.0, 40.0, NO, NO, YES, YES, 0
+        ),
+        createDefaultControlButton(@"Player\nList",
+            (int[]){GLFW_KEY_TAB,0,0,0},
+            @"0.0 * ${screen_width} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin} + (px(96.0) / 100.0 * ${preferred_scale}) + ${margin}",
+            @"0.0026855469 * ${screen_height} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - (px(40.0) /100.0 * ${preferred_scale}) - ${margin} + (px(40.0) /100.0 * ${preferred_scale}) + ${margin} - ${height} - ${margin}",
+            96.0, 40.0, YES, NO, YES, YES, 0
+        )
+    ]];
+    [dict[@"mDrawerDataList"] addObject:drawer];
 
     // No joystick or "More" drawer in the default touch layout.
     NSOutputStream *os = [[NSOutputStream alloc] initToFileAtPath:defaultPath append:NO];
