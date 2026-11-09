@@ -315,25 +315,25 @@ jre: native
 	mkdir -p $(SOURCEDIR)/depends
 	cd $(SOURCEDIR)/depends; \
 	for version in $(JRE_VERSIONS); do \
-		case "$version" in \
+		case "$$version" in \
 			8) $(call METHOD_JAVA_UNPACK,8,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre8-ios-aarch64.zip') ;; \
 			17) $(call METHOD_JAVA_UNPACK,17,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre17-ios-aarch64.zip') ;; \
 			21) $(call METHOD_JAVA_UNPACK,21,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre21-ios-aarch64.zip') ;; \
 			25) $(call METHOD_JAVA_UNPACK,25,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre25-ios-aarch64.zip') ;; \
-			*) echo "Unsupported JRE version: $version"; exit 1 ;; \
+			*) echo "Unsupported JRE version: $$version"; exit 1 ;; \
 		esac; \
 	done; \
 	cd $(SOURCEDIR); \
 	for version in $(JRE_VERSIONS); do \
-		dir="$(SOURCEDIR)/depends/java-$version-openjdk"; \
-		test -f "$dir/release" || { echo "Missing Java $version release file"; exit 1; }; \
-		rm -rf "$dir"/{ASSEMBLY_EXCEPTION,bin,include,jre,legal,LICENSE,man,THIRD_PARTY_README,lib/{ct.sym,jspawnhelper,libjsig.dylib,src.zip,tools.jar}}; \
+		dir="$(SOURCEDIR)/depends/java-$$version-openjdk"; \
+		test -f "$$dir/release" || { echo "Missing Java $$version release file"; exit 1; }; \
+		rm -rf "$$dir"/{ASSEMBLY_EXCEPTION,bin,include,jre,legal,LICENSE,man,THIRD_PARTY_README,lib/{ct.sym,jspawnhelper,libjsig.dylib,src.zip,tools.jar}}; \
 	done; \
 	mkdir -p $(OUTPUTDIR)/java_runtimes; \
 	rm -rf $(OUTPUTDIR)/java_runtimes/*; \
 	for version in $(JRE_VERSIONS); do \
-		cp -R "$(SOURCEDIR)/depends/java-$version-openjdk" $(OUTPUTDIR)/java_runtimes/; \
-		cp $(WORKINGDIR)/libawt_xawt.dylib "$(OUTPUTDIR)/java_runtimes/java-$version-openjdk/lib/"; \
+		cp -R "$(SOURCEDIR)/depends/java-$$version-openjdk" $(OUTPUTDIR)/java_runtimes/; \
+		cp $(WORKINGDIR)/libawt_xawt.dylib "$(OUTPUTDIR)/java_runtimes/java-$$version-openjdk/lib/"; \
 	done
 	echo '[Amethyst v$(VERSION)] jre - end'
 
