@@ -177,13 +177,17 @@ METHOD_LWJGL_JARS = \
 # Function to download and unpack Java runtimes.
 METHOD_JAVA_UNPACK = \
 	cd $(SOURCEDIR)/depends; \
-	if [ ! -f "java-$(1)-openjdk/release" ] && [ ! -f "$(ls jre$(1)-*.tar.xz)" ]; then \
+	if [ ! -f "java-$(1)-openjdk/release" ]; then \
 		if [ "$(RUNNER)" != "1" ]; then \
-			curl --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 180 --connect-timeout 30 -OJfSL '$(2)'; \
-			unzip jre*-ios-aarch64.zip && rm jre*-ios-aarch64.zip; \
+			curl --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 180 --connect-timeout 30 -o "jre$(1)-ios-aarch64.zip" -fSL '$(2)'; \
+			unzip -q "jre$(1)-ios-aarch64.zip"; \
+			rm -f "jre$(1)-ios-aarch64.zip"; \
 		fi; \
 		mkdir -p java-$(1)-openjdk; \
-		tar xvf jre$(1)-*.tar.xz -C java-$(1)-openjdk; \
+		ARCHIVE="$(find . -maxdepth 1 -type f -name 'jre$(1)-*.tar.xz' -print -quit)"; \
+		if [ -z "$ARCHIVE" ]; then echo "Missing iOS ARM64 JRE $(1) archive"; exit 1; fi; \
+		tar xf "$ARCHIVE" -C java-$(1)-openjdk; \
+		rm -f "$ARCHIVE"; \
 	fi
 
 # Function to codesign binaries.
@@ -309,22 +313,27 @@ jre: native
 	echo '[Amethyst v$(VERSION)] jre - start'
 	mkdir -p $(SOURCEDIR)/depends
 	cd $(SOURCEDIR)/depends; \
-	$(call METHOD_JAVA_UNPACK,8,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre8-ios-aarch64.zip'); \
-	$(call METHOD_JAVA_UNPACK,17,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre17-ios-aarch64.zip'); \
-	$(call METHOD_JAVA_UNPACK,21,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre21-ios-aarch64.zip'); \
-	$(call METHOD_JAVA_UNPACK,25,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre25-ios-aarch64.zip'); \
-	if [ -f "$(ls jre*.tar.xz)" ]; then rm $(SOURCEDIR)/depends/jre*.tar.xz; fi; \
+	for version in $(JRE_VERSIONS); do \
+		case "$version" in \
+			8) $(call METHOD_JAVA_UNPACK,8,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre8-ios-aarch64.zip') ;; \
+			17) $(call METHOD_JAVA_UNPACK,17,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre17-ios-aarch64.zip') ;; \
+			21) $(call METHOD_JAVA_UNPACK,21,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre21-ios-aarch64.zip') ;; \
+			25) $(call METHOD_JAVA_UNPACK,25,'https://assets.angelauramc.dev/openjdk/ios-arm64/jre25-ios-aarch64.zip') ;; \
+			*) echo "Unsupported JRE version: $version"; exit 1 ;; \
+		esac; \
+	done; \
 	cd $(SOURCEDIR); \
-	rm -rf $(SOURCEDIR)/depends/java-*-openjdk/{ASSEMBLY_EXCEPTION,bin,include,jre,legal,LICENSE,man,THIRD_PARTY_README,lib/{ct.sym,jspawnhelper,libjsig.dylib,src.zip,tools.jar}}; \
-	$(call METHOD_DIRCHECK,$(OUTPUTDIR)/java_runtimes); \
-	cp -R $(AME_JRE8_DIR) $(OUTPUTDIR)/java_runtimes; \
-	cp -R $(AME_JRE17_DIR) $(OUTPUTDIR)/java_runtimes; \
-	cp -R $(AME_JRE21_DIR) $(OUTPUTDIR)/java_runtimes; \
-	cp -R $(AME_JRE25_DIR) $(OUTPUTDIR)/java_runtimes; \
-	cp $(WORKINGDIR)/libawt_xawt.dylib $(OUTPUTDIR)/java_runtimes/java-8-openjdk/lib; \
-	cp $(WORKINGDIR)/libawt_xawt.dylib $(OUTPUTDIR)/java_runtimes/java-17-openjdk/lib;
-	cp $(WORKINGDIR)/libawt_xawt.dylib $(OUTPUTDIR)/java_runtimes/java-21-openjdk/lib;
-	cp $(WORKINGDIR)/libawt_xawt.dylib $(OUTPUTDIR)/java_runtimes/java-25-openjdk/lib
+	for version in $(JRE_VERSIONS); do \
+		dir="$(SOURCEDIR)/depends/java-$version-openjdk"; \
+		test -f "$dir/release" || { echo "Missing Java $version release file"; exit 1; }; \
+		rm -rf "$dir"/{ASSEMBLY_EXCEPTION,bin,include,jre,legal,LICENSE,man,THIRD_PARTY_README,lib/{ct.sym,jspawnhelper,libjsig.dylib,src.zip,tools.jar}}; \
+	done; \
+	mkdir -p $(OUTPUTDIR)/java_runtimes; \
+	rm -rf $(OUTPUTDIR)/java_runtimes/*; \
+	for version in $(JRE_VERSIONS); do \
+		cp -R "$(SOURCEDIR)/depends/java-$version-openjdk" $(OUTPUTDIR)/java_runtimes/; \
+		cp $(WORKINGDIR)/libawt_xawt.dylib "$(OUTPUTDIR)/java_runtimes/java-$version-openjdk/lib/"; \
+	done
 	echo '[Amethyst v$(VERSION)] jre - end'
 
 dep_mg:
