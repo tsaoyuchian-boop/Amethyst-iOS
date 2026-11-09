@@ -28,7 +28,7 @@ NSMutableDictionary* createButton(NSString* name, int* keycodes, NSString* dynam
 
 static NSMutableDictionary* createDefaultControlButton(NSString* name, int* keycodes, NSString* dynamicX, NSString* dynamicY, CGFloat width, CGFloat height, BOOL isToggle, BOOL isSwipeable, BOOL displayInGame, BOOL displayInMenu, CGFloat strokeWidth) {
     NSMutableDictionary *dict = createButton(name, keycodes, dynamicX, dynamicY, width, height);
-    dict[@"cornerRadius"] = @(100);
+    dict[@"cornerRadius"] = @(0);
     dict[@"isToggle"] = @(isToggle);
     dict[@"isSwipeable"] = @(isSwipeable);
     dict[@"displayInGame"] = @(displayInGame);
