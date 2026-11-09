@@ -95,13 +95,60 @@ jobs:
           git commit -am "CI: Update gl4es"
           git push
 
+      - name: Set up JDK 25
+        if: matrix.platform_name == 'ios'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Build Java 25 iOS runtime from source
+        if: matrix.platform_name == 'ios'
+        env:
+          BUILD_IOS: "1"
+          TARGET_VERSION: "25"
+          J316SAP: "1"
+        run: |
+          set -euo pipefail
+          brew install autoconf automake ldid wget gnu-sed coreutils
+          git clone https://github.com/AngelAuraMC/angelauramc-openjdk-build.git recipe
+          cd recipe
+          git checkout 3f41bcabf703fc5bfd75492b0ed713a73dd86541
+          git clone --depth 1 --branch "jdk-25.0.5.0.3-ga" https://github.com/openjdk/jdk25u openjdk-25
+          printf '#!/bin/bash\\necho "jdk25u already cloned at pinned tag"\\n' > 5_clonejdk.sh
+          chmod +x 5_clonejdk.sh
+          cd openjdk-25
+          for patch in ../patches/jre_25/ios/1_jdk25u_ios.diff ../patches/jre_25/ios/2_mirror_mapping.diff; do
+            git apply --check "$patch"
+            git apply --reject --whitespace=fix "$patch"
+          done
+          test "$(find . -name '*.rej' | wc -l | tr -d ' ')" -eq 0
+          git checkout -q -f .
+          git clean -qfd
+          cd ..
+          export JAVA_HOME=$(/usr/libexec/java_home -v 25)
+          export PATH=/opt/homebrew/bin:$PATH
+          bash 1_ci_build_arch_aarch64.sh 2>&1 | tee ../java25-ios-build.log | tail -400
+          ARCHIVE="$(find . -maxdepth 1 -type f -name 'jre25-ios*.tar.xz' -print -quit)"
+          test -n "$ARCHIVE"
+          mkdir -p ../depends/java-25-openjdk
+          TEMP_JRE="$(mktemp -d)"
+          tar -xf "$ARCHIVE" -C "$TEMP_JRE"
+          RELEASE_FILE="$(find "$TEMP_JRE" -type f -name release -print -quit)"
+          test -n "$RELEASE_FILE"
+          cp -R "$(dirname "$RELEASE_FILE")/." ../depends/java-25-openjdk/
+          test -f ../depends/java-25-openjdk/lib/server/libjvm.dylib
+          grep -E 'JAVA_VERSION|OS_ARCH|OS_NAME' ../depends/java-25-openjdk/release
+          cd ..
+          rm -rf "$TEMP_JRE" recipe
+
       - name: Build for ${{ matrix.platform_name }}
         run: |
           export PATH=/opt/homebrew/bin:$PATH
           export SLIMMED=1
           if [ "${{ matrix.platform_name }}" == "ios" ]; then
             # Build ipa and tipa for iOS
-            gmake -j$(sysctl -n hw.ncpu) dsym package PLATFORM=${{ matrix.platform }}
+            gmake -j$(sysctl -n hw.ncpu) dsym package PLATFORM=${{ matrix.platform }} JRE_VERSIONS=25
             gmake -j$(sysctl -n hw.ncpu) dsym package PLATFORM=${{ matrix.platform }} TROLLSTORE_JIT_ENT=1
           elif [ "${{ matrix.platform_name }}" == "tvos" ]; then
             # Build tipa only for tvOS
