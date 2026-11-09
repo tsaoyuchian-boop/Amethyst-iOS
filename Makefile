@@ -179,7 +179,7 @@ METHOD_JAVA_UNPACK = \
 	cd $(SOURCEDIR)/depends; \
 	if [ ! -f "java-$(1)-openjdk/release" ] && [ ! -f "$(ls jre$(1)-*.tar.xz)" ]; then \
 		if [ "$(RUNNER)" != "1" ]; then \
-			curl -OJfSL '$(2)'; \
+			curl --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 180 --connect-timeout 30 -OJfSL '$(2)'; \
 			unzip jre*-ios-aarch64.zip && rm jre*-ios-aarch64.zip; \
 		fi; \
 		mkdir -p java-$(1)-openjdk; \
