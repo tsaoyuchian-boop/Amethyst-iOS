@@ -126,24 +126,13 @@ def hash_shim(root):
 
 
 def enable_availability(root):
-    target = root / "CMakeLists.txt"
-    if not target.is_file():
-        print(f"[enable_availability] {target} not found", file=sys.stderr)
-        return FAILED
-    text = read(target)
-    if "_LIBCPP_DISABLE_AVAILABILITY" not in text:
-        print("[enable_availability] already applied")
-        return SKIPPED
-    pattern = re.compile(
-        r"(target_compile_definitions\(\$\{CMAKE_PROJECT_NAME\}(?:_s)? PUBLIC MOBILEGL_IOS=1) _LIBCPP_DISABLE_AVAILABILITY(\))")
-    text, count = pattern.subn(r"\1\2", text)
-    if count == 0:
-        print("[enable_availability] pattern not found, CMakeLists.txt changed upstream", file=sys.stderr)
-        return FAILED
-    write(target, text)
-    print(f"[enable_availability] applied to {count} target(s)")
-    return APPLIED
-
+    # Keep _LIBCPP_DISABLE_AVAILABILITY for iOS 15 builds.
+    # Apple's libc++ std::format currently instantiates floating-point to_chars
+    # helpers annotated as iOS 16.3+, even when the call sites format strings
+    # or integers. Removing this define makes MobileGL fail to compile against
+    # the iOS 15 deployment target. Do not strip the availability suppression.
+    print("[enable_availability] keeping _LIBCPP_DISABLE_AVAILABILITY for iOS 15")
+    return SKIPPED
 
 def glslang(root):
     target = root / "3rdparty/glslang/SPIRV/GlslangToSpv.cpp"
