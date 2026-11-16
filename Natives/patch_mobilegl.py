@@ -125,6 +125,49 @@ def hash_shim(root):
     return APPLIED
 
 
+def to_chars_shim(root):
+    # Same mechanism as hash_shim: iOS 15's libc++ lacks the floating-point
+    # std::to_chars overloads (annotated iOS 16.3+), which std::format
+    # instantiates even for integer/string call sites. Without this shim
+    # libMobileGL.dylib compiles but fails to dlopen on iOS 15 with
+    # "Symbol not found: __ZNSt3__18to_charsEPcS0_d".
+    shim_rel = "MobileGL/MG_Util/Compat/libcxx_to_chars_shim.cpp"
+    anchor = "MobileGL/MG_Util/Debug/Log.cpp"
+
+    src = HERE / "libcxx_to_chars_shim.cpp"
+    dst = root / shim_rel
+    if src.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        print("[to_chars_shim] copied libcxx_to_chars_shim.cpp")
+    elif not dst.is_file():
+        print(f"[to_chars_shim] {src} missing and {shim_rel} not in the checkout", file=sys.stderr)
+        return FAILED
+
+    target = root / "CMakeLists.txt"
+    if not target.is_file():
+        print(f"[to_chars_shim] {target} not found", file=sys.stderr)
+        return FAILED
+    text = read(target)
+    if shim_rel in text:
+        print("[to_chars_shim] cmake entry already there")
+        return SKIPPED
+    if anchor not in text:
+        print(f"[to_chars_shim] anchor {anchor} not in CMakeLists.txt, upstream moved it", file=sys.stderr)
+        return FAILED
+
+    out = []
+    done = False
+    for line in text.splitlines(keepends=True):
+        out.append(line)
+        if not done and anchor in line:
+            out.append(f"\n    {shim_rel}\n")
+            done = True
+    write(target, "".join(out))
+    print("[to_chars_shim] applied")
+    return APPLIED
+
+
 def enable_availability(root):
     # Keep _LIBCPP_DISABLE_AVAILABILITY for iOS 15 builds.
     # Apple's libc++ std::format currently instantiates floating-point to_chars
@@ -185,6 +228,7 @@ STEPS = [
     ("ios_visibility", ios_visibility, True),
     ("ios_resolution", ios_resolution, True),
     ("hash_shim", hash_shim, True),
+    ("to_chars_shim", to_chars_shim, True),
     ("enable_availability", enable_availability, True),
     ("glslang", glslang, False),
     ("log_to_stderr", log_to_stderr, False),
