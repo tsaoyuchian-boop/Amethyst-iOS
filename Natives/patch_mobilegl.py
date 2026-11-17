@@ -168,6 +168,57 @@ def to_chars_shim(root):
     return APPLIED
 
 
+def expected_shim(root):
+    # Same mechanism as hash_shim / to_chars_shim: iOS 15's libc++ lacks
+    # the LLVM 19 key-function symbols for std::bad_expected_access
+    # (what() + typeinfo), std::bad_optional_access (what() + D1/D0 +
+    # typeinfo + vtable) and std::bad_function_call::what(). Without
+    # this shim libMobileGL.dylib compiles but fails to dlopen on iOS 15
+    # with "Symbol not found: __ZTINSt3__119bad_expected_accessIvEE".
+    # The symbols were confirmed missing from the run #24 dylib with nm:
+    # bad_expected_access<void> has only what() + typeinfo undefined,
+    # bad_optional_access has all five undefined with no local weak
+    # definition, bad_function_call only what(). The shim builds the
+    # typeinfo/vtable objects by hand (Itanium ABI) instead of
+    # including <expected> / <optional>, so the key-function trap
+    # cannot reappear.
+    shim_rel = "MobileGL/MG_Util/Compat/libcxx_expected_shim.cpp"
+    anchor = "MobileGL/MG_Util/Debug/Log.cpp"
+
+    src = HERE / "libcxx_expected_shim.cpp"
+    dst = root / shim_rel
+    if src.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        print("[expected_shim] copied libcxx_expected_shim.cpp")
+    elif not dst.is_file():
+        print(f"[expected_shim] {src} missing and {shim_rel} not in the checkout", file=sys.stderr)
+        return FAILED
+
+    target = root / "CMakeLists.txt"
+    if not target.is_file():
+        print(f"[expected_shim] {target} not found", file=sys.stderr)
+        return FAILED
+    text = read(target)
+    if shim_rel in text:
+        print("[expected_shim] cmake entry already there")
+        return SKIPPED
+    if anchor not in text:
+        print(f"[expected_shim] anchor {anchor} not in CMakeLists.txt, upstream moved it", file=sys.stderr)
+        return FAILED
+
+    out = []
+    done = False
+    for line in text.splitlines(keepends=True):
+        out.append(line)
+        if not done and anchor in line:
+            out.append(f"\n    {shim_rel}\n")
+            done = True
+    write(target, "".join(out))
+    print("[expected_shim] applied")
+    return APPLIED
+
+
 def enable_availability(root):
     # Keep _LIBCPP_DISABLE_AVAILABILITY for iOS 15 builds.
     # Apple's libc++ std::format currently instantiates floating-point to_chars
@@ -229,6 +280,7 @@ STEPS = [
     ("ios_resolution", ios_resolution, True),
     ("hash_shim", hash_shim, True),
     ("to_chars_shim", to_chars_shim, True),
+    ("expected_shim", expected_shim, True),
     ("enable_availability", enable_availability, True),
     ("glslang", glslang, False),
     ("log_to_stderr", log_to_stderr, False),
