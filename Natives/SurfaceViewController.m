@@ -304,7 +304,12 @@ static GameSurfaceView* pojavWindow;
         return;
     }
     // More 1024MB is necessary for other memory regions (native, Java GC, etc.)
-    int limit = getPrefInt(@"java.allocated_memory") + 1024;
+    // On 3GB devices (e.g. iPhone 7 Plus) Minecraft 26.3 + MoltenVK needs more
+    // than 1024MB of native memory when the world first renders: with the stock
+    // budget the process was jetsam-killed at exactly allocated_memory + 1024MB
+    // (750+1024=1774MB in single-player, 519+1024=1543MB in multiplayer).
+    // Raise the native budget to 1536MB so the limit becomes allocmem + 1536.
+    int limit = getPrefInt(@"java.allocated_memory") + 1536;
     if (memorystatus_control(MEMORYSTATUS_CMD_SET_JETSAM_TASK_LIMIT, getpid(), limit, NULL, 0) == -1) {
         NSLog(@"Failed to set Jetsam task limit: error: %s", strerror(errno));
     } else {
