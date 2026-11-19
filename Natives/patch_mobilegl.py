@@ -219,6 +219,338 @@ def expected_shim(root):
     return APPLIED
 
 
+def layered_attachment_workaround(root):
+    # Option A + B for A10 / MoltenVK (run #28, latestlog 2026-11-19):
+    # A10 has no Metal layered rendering (Apple5/A12 required), and MobileGL added
+    # COLOR_ATTACHMENT usage to EVERY colour texture, so MoltenVK refused to create
+    # the layered (cube) view of the main-menu panorama cubemap (textureId=19,
+    # GL_TEXTURE_CUBE_MAP, 6 panorama PNGs) at VkTextureManager.cpp:2857 with
+    # VK_ERROR_FEATURE_NOT_PRESENT (-8). The render thread then retried the view
+    # every frame, spamming FATAL, until the app crashed after "Preparing spawn
+    # area: 16%".
+    #
+    # A: defer attachment usage exactly like STORAGE usage is deferred above -
+    # only textures actually attached to a framebuffer get COLOR_ATTACHMENT /
+    # DEPTH_STENCIL_ATTACHMENT. Sampled-only textures (the panorama cubemap)
+    # never carry the bit, so MoltenVK no longer refuses their layered views.
+    # MarkAttachmentTexture is called from GetOrCreateAttachmentViewAtMipLevel,
+    # the choke point every attachment-view request passes through, before its
+    # sync - so the image is created with attachment usage on first use, and a
+    # texture attached later is upgraded through the existing preserve-copy
+    # recreate (which restores the old layout, so the render pass manager's
+    # tracked layout stays truthful).
+    #
+    # B: CreateImageView failure is a soft, recoverable driver refusal, not a
+    # broken invariant, so it must not go through VK_VERIFY (which logs FATAL on
+    # every retry) - check the VkResult directly and report it once, the rule
+    # VkIncludes.h states for SyncTextureResource's vmaCreateImage failure.
+    # SyncTextureViews additionally latches a view-creation failure per image so
+    # a capability refusal is not retried every frame; the latch clears when
+    # SyncTextureResource creates a new image, the only thing that can change
+    # the outcome.
+    h_target = root / "MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.h"
+    cpp_target = root / "MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.cpp"
+    results = []
+
+    results.append(replace_once(h_target,
+        """        Bool storageUsageResolved = false;
+""",
+        """        Bool storageUsageResolved = false;
+        // True once this image was (re)resolved while the texture was already marked as a
+        // framebuffer attachment (see MarkAttachmentTexture). Mirrors storageUsageResolved:
+        // distinguishes "not upgraded yet" from "cannot be upgraded", so the compatibility
+        // check that recreates the image on an attachment-usage upgrade can actually fire.
+        Bool attachmentUsageResolved = false;
+        // Latched when SyncTextureViews fails to create a view for this image: the failure
+        // is a driver capability refusal, not a transient error, so retrying it every frame
+        // only re-logs the same error. Cleared when SyncTextureResource creates a new image
+        // for the texture, which is the only thing that can change the outcome.
+        Bool viewCreationFailed = false;
+""",
+        "attachmentUsageResolved", "layered_attachment"))
+
+    results.append(replace_once(h_target,
+        """            std::swap(this->storageUsageResolved, that.storageUsageResolved);
+""",
+        """            std::swap(this->storageUsageResolved, that.storageUsageResolved);
+            std::swap(this->attachmentUsageResolved, that.attachmentUsageResolved);
+            std::swap(this->viewCreationFailed, that.viewCreationFailed);
+""",
+        "viewCreationFailed, that.viewCreationFailed", "layered_attachment"))
+
+    results.append(replace_once(h_target,
+        """            storageUsageResolved = false;
+            syncedTextureParamsVersion = 0;
+""",
+        """            storageUsageResolved = false;
+            attachmentUsageResolved = false;
+            viewCreationFailed = false;
+            syncedTextureParamsVersion = 0;
+""",
+        "viewCreationFailed = false;\n            syncedTextureParamsVersion = 0;", "layered_attachment"))
+
+    results.append(replace_once(h_target,
+        """    Bool NeedsStorageUsageUpgrade(MG_State::GLState::ITextureObject& texture) const;
+""",
+        """    Bool NeedsStorageUsageUpgrade(MG_State::GLState::ITextureObject& texture) const;
+    // Records that this texture is attached to a framebuffer, so its image must carry
+    // COLOR_ATTACHMENT / DEPTH_STENCIL_ATTACHMENT usage. Called from
+    // GetOrCreateAttachmentViewAtMipLevel, the choke point every attachment-view request
+    // passes through, before its sync - so the image is created with attachment usage
+    // on first use. Sticky for the texture's lifetime, like MarkStorageImageTexture.
+    void MarkAttachmentTexture(MG_State::GLState::ITextureObject& texture);
+    // True when this texture is marked but its live image predates the mark, i.e. the next
+    // sync will recreate it with attachment usage and copy the old contents forward.
+    Bool NeedsAttachmentUsageUpgrade(MG_State::GLState::ITextureObject& texture) const;
+""",
+        "void MarkAttachmentTexture(MG_State::GLState::ITextureObject& texture);", "layered_attachment"))
+
+    results.append(replace_once(h_target,
+        """    // Textures that have been bound to a GL image unit (see MarkStorageImageTexture).
+    std::unordered_set<TextureIdentity, TextureIdentityHash> m_storageImageTextures;
+""",
+        """    // Textures that have been bound to a GL image unit (see MarkStorageImageTexture).
+    std::unordered_set<TextureIdentity, TextureIdentityHash> m_storageImageTextures;
+    // Textures that have been attached to a framebuffer (see MarkAttachmentTexture).
+    std::unordered_set<TextureIdentity, TextureIdentityHash> m_attachmentTextures;
+""",
+        "m_attachmentTextures", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """    Bool VkTextureManager::NeedsStorageUsageUpgrade(MG_State::GLState::ITextureObject& texture) const {
+        const TextureIdentity identity = MakeTextureIdentity(&texture);
+        if (m_storageImageTextures.find(identity) == m_storageImageTextures.end()) {
+            return false;
+        }
+        const auto it = m_textureResources.find(identity);
+        // No image yet: the first sync creates it with STORAGE straight away, so there is nothing
+        // to preserve and nothing to order against.
+        return it != m_textureResources.end() && it->second.image != VK_NULL_HANDLE &&
+               !it->second.storageUsageResolved;
+    }
+""",
+        """    Bool VkTextureManager::NeedsStorageUsageUpgrade(MG_State::GLState::ITextureObject& texture) const {
+        const TextureIdentity identity = MakeTextureIdentity(&texture);
+        if (m_storageImageTextures.find(identity) == m_storageImageTextures.end()) {
+            return false;
+        }
+        const auto it = m_textureResources.find(identity);
+        // No image yet: the first sync creates it with STORAGE straight away, so there is nothing
+        // to preserve and nothing to order against.
+        return it != m_textureResources.end() && it->second.image != VK_NULL_HANDLE &&
+               !it->second.storageUsageResolved;
+    }
+
+    void VkTextureManager::MarkAttachmentTexture(MG_State::GLState::ITextureObject& texture) {
+        m_attachmentTextures.insert(MakeTextureIdentity(&texture));
+    }
+
+    Bool VkTextureManager::NeedsAttachmentUsageUpgrade(MG_State::GLState::ITextureObject& texture) const {
+        const TextureIdentity identity = MakeTextureIdentity(&texture);
+        if (m_attachmentTextures.find(identity) == m_attachmentTextures.end()) {
+            return false;
+        }
+        const auto it = m_textureResources.find(identity);
+        // No image yet: the first sync creates it with attachment usage straight away, so there
+        // is nothing to preserve and nothing to order against.
+        return it != m_textureResources.end() && it->second.image != VK_NULL_HANDLE &&
+               !it->second.attachmentUsageResolved;
+    }
+""",
+        "void VkTextureManager::MarkAttachmentTexture", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        const Bool storageUpgradePending =
+            !outResource.storageUsageResolved &&
+            m_storageImageTextures.find(MakeTextureIdentity(&texture)) != m_storageImageTextures.end();
+""",
+        """        const Bool storageUpgradePending =
+            !outResource.storageUsageResolved &&
+            m_storageImageTextures.find(MakeTextureIdentity(&texture)) != m_storageImageTextures.end();
+        // Same shape for a pending attachment-usage upgrade: nothing about the texture's
+        // content or params changed, but the image itself must be recreated with attachment
+        // usage before it can back a framebuffer attachment.
+        const Bool attachmentUpgradePending = NeedsAttachmentUsageUpgrade(texture);
+""",
+        "attachmentUpgradePending", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        if (outResource.image != VK_NULL_HANDLE && !storageUpgradePending && !viewFlagUpgradePending &&
+""",
+        """        if (outResource.image != VK_NULL_HANDLE && !storageUpgradePending && !attachmentUpgradePending &&
+            !viewFlagUpgradePending &&
+""",
+        "!attachmentUpgradePending", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        VkImageUsageFlags desiredUsage =
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            (supportsStorageImage ? VK_IMAGE_USAGE_STORAGE_BIT : 0) |
+            ((aspect & VK_IMAGE_ASPECT_COLOR_BIT) ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
+            (((aspect & VK_IMAGE_ASPECT_DEPTH_BIT) || (aspect & VK_IMAGE_ASPECT_STENCIL_BIT)) ?
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT :
+                 0);
+""",
+        """        // Attachment usage is deferred exactly like STORAGE usage above: only textures
+        // that have actually been attached to a framebuffer get COLOR_ATTACHMENT /
+        // DEPTH_STENCIL_ATTACHMENT. Requesting it for every colour texture makes MoltenVK
+        // refuse layered (cube/array) views on GPUs without layered rendering (A10) - the
+        // main-menu panorama cubemap is sampled-only and must never carry it.
+        // MarkAttachmentTexture upgrades a texture before its first attachment-view sync,
+        // and the usage below feeds the compatibility check so the upgrade recreates the image.
+        const Bool markedAsAttachmentTexture =
+            m_attachmentTextures.find(MakeTextureIdentity(
+                const_cast<MG_State::GLState::ITextureObject*>(&texture))) != m_attachmentTextures.end();
+        VkImageUsageFlags desiredUsage =
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            (supportsStorageImage ? VK_IMAGE_USAGE_STORAGE_BIT : 0) |
+            ((markedAsAttachmentTexture && (aspect & VK_IMAGE_ASPECT_COLOR_BIT)) ?
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT :
+                 0) |
+            ((markedAsAttachmentTexture &&
+              ((aspect & VK_IMAGE_ASPECT_DEPTH_BIT) || (aspect & VK_IMAGE_ASPECT_STENCIL_BIT))) ?
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT :
+                 0);
+""",
+        "markedAsAttachmentTexture", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """            resource.storageUsageResolved = markedAsStorageImage;
+            return true;
+""",
+        """            resource.storageUsageResolved = markedAsStorageImage;
+            resource.attachmentUsageResolved = markedAsAttachmentTexture;
+            return true;
+""",
+        "attachmentUsageResolved = markedAsAttachmentTexture;\n            return true;", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        resource.storageUsageResolved = markedAsStorageImage;
+        resource.syncedTextureParamsVersion = 0;
+""",
+        """        resource.storageUsageResolved = markedAsStorageImage;
+        resource.attachmentUsageResolved = markedAsAttachmentTexture;
+        // A new image can change a view-creation outcome, so a previous SyncTextureViews
+        // failure must not latch across the recreate.
+        resource.viewCreationFailed = false;
+        resource.syncedTextureParamsVersion = 0;
+""",
+        "resource.viewCreationFailed = false;\n        resource.syncedTextureParamsVersion = 0;", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """    VkImageView VkTextureManager::GetOrCreateAttachmentViewAtMipLevel(MG_State::GLState::ITextureObject& texture,
+                                                                      Uint32 mipLevel, Uint32 baseArrayLayer,
+                                                                      Uint32 layerCount,
+                                                                      VkImageViewType viewType) {
+        TextureResource* resource = SyncTextureAndGetDescriptor(texture);
+""",
+        """    VkImageView VkTextureManager::GetOrCreateAttachmentViewAtMipLevel(MG_State::GLState::ITextureObject& texture,
+                                                                      Uint32 mipLevel, Uint32 baseArrayLayer,
+                                                                      Uint32 layerCount,
+                                                                      VkImageViewType viewType) {
+        // Every caller of this function is asking for a framebuffer-attachment view, so this
+        // is where a texture earns attachment usage (see MarkAttachmentTexture). Marking
+        // before the sync below means the image is created with attachment usage on first
+        // use; textures that are only ever sampled never get the bit, which is what keeps
+        // MoltenVK from refusing their layered views on GPUs without layered rendering (A10).
+        MarkAttachmentTexture(texture);
+        TextureResource* resource = SyncTextureAndGetDescriptor(texture);
+""",
+        "MarkAttachmentTexture(texture);\n        TextureResource* resource = SyncTextureAndGetDescriptor(texture);", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        VkImageView view = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &view), "vkCreateImageView(texture)");
+        return view;
+""",
+        """        VkImageView view = VK_NULL_HANDLE;
+        // Soft failure, not a broken invariant: a driver may legitimately refuse a view
+        // (MoltenVK refuses layered views on GPUs without layered rendering), and every
+        // caller treats VK_NULL_HANDLE as a recoverable decline. VK_VERIFY would log FATAL
+        // on every retry, so check the result directly and report it once - the same rule
+        // VkIncludes.h states for SyncTextureResource's vmaCreateImage failure.
+        const VkResult viewResult = vkCreateImageView(m_device, &viewInfo, nullptr, &view);
+        if (viewResult != VK_SUCCESS) {
+            MGLOG_E_ONCE("CreateImageView failed (%d) viewType=%d layers=[%u, %u) format=%d",
+                         viewResult, static_cast<Int>(viewType), baseArrayLayer,
+                         baseArrayLayer + layerCount, static_cast<Int>(format));
+            return VK_NULL_HANDLE;
+        }
+        return view;
+""",
+        "CreateImageView failed (%d) viewType=%d", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        const Bool needsRecreate =
+            resource.fullView == VK_NULL_HANDLE ||
+            resource.sampledView == VK_NULL_HANDLE ||
+            resource.sampledBaseMipLevel != baseMipLevel ||
+            resource.sampledLevelCount != levelCount ||
+            resource.syncedTextureParamsVersion != texture.GetTextureParamsVersion();
+        if (!needsRecreate) {
+            return true;
+        }
+""",
+        """        const Bool needsRecreate =
+            resource.fullView == VK_NULL_HANDLE ||
+            resource.sampledView == VK_NULL_HANDLE ||
+            resource.sampledBaseMipLevel != baseMipLevel ||
+            resource.sampledLevelCount != levelCount ||
+            resource.syncedTextureParamsVersion != texture.GetTextureParamsVersion();
+        if (!needsRecreate) {
+            return true;
+        }
+        if (resource.viewCreationFailed) {
+            // A view for this image already failed to be created and the image has not been
+            // recreated since (SyncTextureResource clears the latch when it creates a new
+            // image). The failure is a driver capability refusal, so recreating the same
+            // views would only re-log the same error every frame - see the panorama cubemap
+            // on A10/MoltenVK. Decline quietly and let the draw fall back to the descriptor
+            // fallback texture.
+            return false;
+        }
+""",
+        "if (resource.viewCreationFailed) {", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, resource.viewType,
+                                            baseMipLevel, levelCount, 0, resource.arrayLayers, &sampledComponents);
+        if (resource.fullView == VK_NULL_HANDLE) {
+            return false;
+        }
+""",
+        """        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, resource.viewType,
+                                            baseMipLevel, levelCount, 0, resource.arrayLayers, &sampledComponents);
+        if (resource.fullView == VK_NULL_HANDLE) {
+            resource.viewCreationFailed = true;
+            return false;
+        }
+""",
+        "fullView == VK_NULL_HANDLE) {\n            resource.viewCreationFailed = true;", "layered_attachment"))
+
+    results.append(replace_once(cpp_target,
+        """        resource.sampledView = CreateImageView(resource.image, resource.format, sampledAspect, resource.viewType,
+                                               baseMipLevel, levelCount, 0, resource.arrayLayers, &sampledComponents);
+        if (resource.sampledView == VK_NULL_HANDLE) {
+            return false;
+        }
+""",
+        """        resource.sampledView = CreateImageView(resource.image, resource.format, sampledAspect, resource.viewType,
+                                               baseMipLevel, levelCount, 0, resource.arrayLayers, &sampledComponents);
+        if (resource.sampledView == VK_NULL_HANDLE) {
+            resource.viewCreationFailed = true;
+            return false;
+        }
+""",
+        "sampledView == VK_NULL_HANDLE) {\n            resource.viewCreationFailed = true;", "layered_attachment"))
+
+    if FAILED in results:
+        return FAILED
+    if APPLIED in results:
+        return APPLIED
+    return SKIPPED
+
+
 def enable_availability(root):
     # Keep _LIBCPP_DISABLE_AVAILABILITY for iOS 15 builds.
     # Apple's libc++ std::format currently instantiates floating-point to_chars
@@ -281,6 +613,7 @@ STEPS = [
     ("hash_shim", hash_shim, True),
     ("to_chars_shim", to_chars_shim, True),
     ("expected_shim", expected_shim, True),
+    ("layered_attachment_workaround", layered_attachment_workaround, True),
     ("enable_availability", enable_availability, True),
     ("glslang", glslang, False),
     ("log_to_stderr", log_to_stderr, False),
